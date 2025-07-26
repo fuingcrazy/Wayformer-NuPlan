@@ -60,7 +60,7 @@ You will see visualization results pop out:
 
 ![](Media/stop.png)
 
-**Start**
+**Break**
 
 ![](Media/start.png)
 
