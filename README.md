@@ -19,7 +19,7 @@ pip install -e .
 pip install -r ./requirements.txt
 ```
 Please modify your dataset and output path in [config file](Wayformer/wayformer_config.py)
-## Preprocess data
+## Preprocess Data
 This model uses preprocessed mappings as input, so we need to read nuplan raw data(scenarios) and convert them into the format we want.
 ```python
 cd Wayformer_Nuplan && conda activate wayformer
@@ -45,8 +45,9 @@ All training logs can be found in `output/wayformer.1/version_n`, you will find 
 ```python
 python eval.py --ckpt '{YOUR_HOME_DIR}/Wayformer_NuPlan/output/wayformer.1/version_0/checkpoints/last.ckpt'
 ```
-Also, you can dowload pretrained ckpt file [Here](https://drive.google.com/file/d/1_xw9segYT10SlrG9RPisYX4rm98_-pA9/view?usp=sharing)
+You can dowload pretrained ckpt file [Here](https://drive.google.com/file/d/1_xw9segYT10SlrG9RPisYX4rm98_-pA9/view?usp=sharing)
 You will see visualization results pop out:
+
 **Forward:**
 
 ![](Media/Forward.png)
