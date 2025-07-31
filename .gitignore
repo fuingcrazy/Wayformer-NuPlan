@@ -2,6 +2,7 @@ __pycache__/
 .vscode/
 processed_data/
 trained_params/
+output/
 *.pth
 *.pkl
 *.pt
