@@ -3,7 +3,7 @@
 **This is a self-implementation of Wayformer based on Nuplan dataset, the original paper link:[Wayformer](https://arxiv.org/abs/2207.05844).**
 ## Highlights:
 1. Wayformer official source code is not available, I studied and reproduced every methods in the original paper and tested its performance on open sourced dataset, this work can be a good reference for those who want to learn motion forecasting for AVs.
-2. Improved model performance. Added positional encoding before earlyfusion, relace random queries with ego vehicle history trajectory feature + multimodal longitudinal proposals. The model achieves fADE:2.1,mADE:0.3,MR:0.34 on nuplan mini split.
+2. Improved model performance. Added positional encoding before earlyfusion, relace random queries with ego vehicle history trajectory feature + multimodal longitudinal proposals. The model achieves fADE6:1.08,mADE:0.4,MR:0.09 on nuplan mini split.
 3. Added other loss functions(L1-smooth, log-prob gaussian) to regulate output trajectories and probabilities, smoothness and drivable routes are more encouraged.
 ## Environment Set Up
 Setup the nuPlan dataset following the [offiical-doc](https://nuplan-devkit.readthedocs.io/en/latest/dataset_setup.html). Prepare conda environment:
