@@ -68,6 +68,10 @@ You will see visualization results pop out:
 
 ![](Media/right_turn.png)
 
+**Pedestrain**
+
+![](Media/pedestrain.png)
+
 ## Reviews
 1. The model still has some problems on predicting multi-modality, probably due to the lack of scenario diversity in the mini split of Nuplan and anchor-free query design.
 2. In left/right turn scenarios, the trajectories become less smooth and feasible when reaching there ends, this means the model is inconfident when forecasting long term turning. Again, the most part of this dataset is just "keep going forward", the modal tends to converge to this pattern to avoid penalties.
