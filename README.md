@@ -5,6 +5,8 @@
 1. Wayformer official source code is not available, I studied and reproduced every methods in the original paper and tested its performance on open sourced dataset, this work can be a good reference for those who want to learn motion forecasting for AVs.
 2. Improved model performance. Added positional encoding before earlyfusion, relace random queries with ego vehicle history trajectory feature + multimodal longitudinal proposals. The model achieves fADE6:1.08,mADE:0.4,MR:0.09 on nuplan mini split.
 3. Added other loss functions(L1-smooth, log-prob gaussian) to regulate output trajectories and probabilities, smoothness and drivable routes are more encouraged.
+### Updates:
+2025.8.9 Modified `Wayformer.py` and `utils.py` to replace full ego car history with dropout features(imitation learning's limits), correct the "best index" expression, use the traj with the highest score provided by Wayformer instead of that is the closest to GT.
 ## Environment Set Up
 Setup the nuPlan dataset following the [offiical-doc](https://nuplan-devkit.readthedocs.io/en/latest/dataset_setup.html). Prepare conda environment:
 ```shell
@@ -72,6 +74,11 @@ You will see visualization results pop out:
 
 ![](Media/pedestrain.png)
 
+**Fail cases**
+
+![](Media/fail_case.png)
+
+![](Media/fail_case1.png)
 ## Reviews
 1. The model still has some problems on predicting multi-modality, probably due to the lack of scenario diversity in the mini split of Nuplan and anchor-free query design.
 2. In left/right turn scenarios, the trajectories become less smooth and feasible when reaching there ends, this means the model is inconfident when forecasting long term turning. Again, the most part of this dataset is just "keep going forward", the modal tends to converge to this pattern to avoid penalties.
