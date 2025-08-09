@@ -42,6 +42,7 @@ class data_processor(object):
         self.future_time_horizon = config.FUTURE_TIME_HORIZON
         self.num_future_poses    = config.NUM_FUTURE_POSES
         self.num_agents          = config.NUM_AGENTS
+        self.use_history         = config.USE_HISTORY
 
         # name of map features to be extracted.
         self._map_features = [
@@ -190,9 +191,9 @@ class data_processor(object):
        ego_hist = sampled_tracked_ego_to_tensor(past_tracked_ego,rot,ego_x,ego_y,isPast=True, past_timestamps=past_timestamp)
        agents_hist = self.sort_agents_hist_by_distance(agents_hist)
        if(len(agents_hist) > config.NUM_AGENTS):
-           agents_hist = agents_hist[:config.NUM_AGENTS]    #[19,20,8]
+           agents_hist = agents_hist[:config.NUM_AGENTS]    #[19,20,9]
        
-       agents_list = torch.cat([ego_hist.unsqueeze(0),agents_hist],dim=0)     #concatenate ego and other agents to form a [20,20,8] array
+       agents_list = torch.cat([ego_hist.unsqueeze(0),agents_hist],dim=0)     #concatenate ego and other agents to form a [20,20,9] array
        agents = np.array(agents_list,dtype=np.float32)
        return agents
 

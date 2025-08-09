@@ -101,7 +101,7 @@ class config:
   DISCRETE_SIZE = 10
   PAST_TIME_HORIZON = 2 # [seconds]
   NUM_PAST_POSES = DISCRETE_SIZE * PAST_TIME_HORIZON 
-  FUTURE_TIME_HORIZON = 4 # [seconds]
+  FUTURE_TIME_HORIZON = 3 # [seconds]
   NUM_FUTURE_POSES = DISCRETE_SIZE * FUTURE_TIME_HORIZON
   NUM_AGENTS :int = 19    # +1(ego)=20
   NUM_HIST = 1   #ego's history trajectory
@@ -112,6 +112,7 @@ class config:
   DIM_FEEDFORWARD :int = 512
   DROPOUT : float = 0.1
   LATENT_QUERY : bool = False
+  USE_HISTORY : bool = False
   LQ_RATIO = 0.5
   NUM_HEADS = 2
   NUM_BLOCKS = 6    #number of encoder blocks
@@ -133,29 +134,29 @@ class config:
   GRAPH_DIM_FFN : int = 64
 
   #history embedding
-  dim_D_h : int = 4
+  dim_D_h : int = 8
 
   #interaction embedding
-  dim_D_i : int = 8 
+  dim_D_i : int = 9 
   
   #decoding
   radius:int = 50
-  k_components : int = 6
+  k_components : int = 16
   num_decoder_blocks : int = 4
-  pred_horizon : int = 40
+  pred_horizon : int = 30
   output_dir: str = 'output'
   
   # Fourier embedding parameters
   num_freq_bands: int = 64 
 
   #training
-  batch_size : int = 32
+  batch_size : int = 16
   do_test: bool = False
   do_eval: bool = False
   do_train: bool = True
   learning_rate: float = 6e-4
   num_gpu: int = 1
-  max_epochs: int = 40
+  max_epochs: int = 70
   data_workers: int = 8
   log_period: int = 2
 

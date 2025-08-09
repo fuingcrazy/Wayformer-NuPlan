@@ -33,7 +33,7 @@ class Wayformer(nn.Module):
         memory,memory_mask = self.encoder(agents,matrix,device)
         
         # Extract ego history
-        histories = [agent[0][:,:4] for agent in agents]    
+        histories = [agent[0][:,:8] for agent in agents]    
         histories = torch.tensor(rearrange(histories, "A T D -> A T D"), device=device, dtype=torch.float32)
         
         weights, trajs = self.decoder(memory,memory_mask,histories=histories)   #trajs:[B,k,T,4], weights:[B,k]
@@ -49,7 +49,7 @@ class Wayformer(nn.Module):
         
         smoothness_loss = self.compute_smoothness_loss(best_trajs)
     
-        loss = 0.6*cls_loss + 0.8*reg_loss + 0.3*negative_log_prob.mean() + 0.4*smoothness_loss
+        loss = 0.8*cls_loss + 0.8*reg_loss + 0.4*negative_log_prob.mean() + 0.5*smoothness_loss
          
         return loss, best_trajs[..., :3]  
     
@@ -80,7 +80,7 @@ class Wayformer(nn.Module):
     @torch.no_grad()
     def get_closest_traj(self,trajs: Tensor, labels: Tensor) -> Tensor:
         '''
-        trajs:[B,k,T,C],C=5,
+        trajs:[B,k,T,C],C=4,
         '''
         k = trajs.shape[1]
         xy = trajs[...,:2]  # [B,k,T,2]
@@ -101,15 +101,15 @@ class Wayformer(nn.Module):
         matrix = get_from_mapping(mappings, 'matrix')
         memory,memory_mask = self.encoder(agents,matrix,device)
         
-        histories = [agent[0][:,:4] for agent in agents]    
+        histories = [agent[0][:,:8] for agent in agents]   
         histories = torch.tensor(rearrange(histories, "A T D -> A T D"), device=device, dtype=torch.float32)
         
         scores, trajs = self.decoder(memory,memory_mask,histories=histories)   #scores;[B,k], trajs:[B,k,t,d]
 
         k = scores.shape[1]
-        if num_query > 0 and num_query < k:
-            _, indices = torch.topk(scores, k=num_query, dim=1)
-            trajs = trajs[torch.arange(len(trajs))[:, None], indices]
+        assert num_query > 0 and num_query < k
+        _, indices = torch.topk(scores, k=num_query, dim=1)
+        trajs = trajs[torch.arange(len(trajs))[:, None], indices]
         
         return trajs
 
@@ -197,12 +197,12 @@ class WayformerPL(pl.LightningModule):
     @torch.no_grad()
     def evaluate_model(self,mappings: List,k:int=6,threshold = 2.0, use_sampling: bool=True) -> Metrics:
 
-        trajs = self.model.predict(mappings, self.device, num_query=k, use_sampling=use_sampling, temperature=1.2)   
+        trajs = self.model.predict(mappings, self.device, num_query=k)   #[32,6,40,4],[32,6] 
         labels = get_from_mapping(mappings, 'labels')     #[16,40,3]
         labels = rearrange(labels, 'b t d -> b t d')
         labels = torch.as_tensor(labels, device=self.device)
         pred = trajs[0].cpu().numpy()             # [M, T, 3]
-        gt   = labels[0].cpu().numpy()            # [T, 3]
+        gt   = labels[0].cpu().numpy()            # [T, 3]   
         plt.figure(figsize=(8, 8))
         matrix = get_from_mapping(mappings, 'matrix')
         if matrix is not None:
@@ -230,13 +230,11 @@ class WayformerPL(pl.LightningModule):
                 y_right = lane[:, -15]
                 plt.plot(x_right, y_right, color='#A9A9A9', linewidth=1, alpha=0.5, linestyle='--')
         plt.plot(gt[:,0], gt[:,1], 'k-', label='gt')
-        trajs_tensor = torch.as_tensor(pred, device=self.device)  # [M, T, 2]
-        labels_expanded = labels[0:1]  # [1, T, 2] for single sample
-        best_index = self.model.get_closest_traj(trajs_tensor.unsqueeze(0), labels_expanded.unsqueeze(0))[0].item()
+
         
         for m in range(pred.shape[0]):
-            if m == best_index:
-                plt.plot(pred[m,:,0], pred[m,:,1], 'b-', alpha=0.8, linewidth=2, label='best_pred')
+            if m == 0:
+                plt.plot(pred[m,:,0], pred[m,:,1], color="#E30FD1", alpha=0.9, linewidth=3, label='best pred')
             else:
                 plt.plot(pred[m,:,0], pred[m,:,1], 'gray', alpha=0.4)
         agents = get_from_mapping(mappings, 'agents')

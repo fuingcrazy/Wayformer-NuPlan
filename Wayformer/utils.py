@@ -1,8 +1,9 @@
-import torch
+import torch,math
 import numpy as np
 import torch.nn.functional as F
 from .wayformer_config import BlockConfig,config
 from .fourier_embedding import FourierEmbedding
+from .state_attention_encoder import StateAttnEncoder
 from nuplan.database.nuplan_db.nuplan_scenario_queries import *
 
 from nuplan.common.actor_state.state_representation import Point2D, StateSE2
@@ -163,7 +164,7 @@ def extract_agent_feature(type_list,tracked_objects,track_token_ids,timestamp):
     extract specific type agents, returns [num_agents,8] tensor
     '''
     agents = tracked_objects.get_tracked_objects_of_types(type_list)   #Filtered agents
-    output = torch.zeros((len(agents),8),dtype=torch.float32)
+    output = torch.zeros((len(agents),9),dtype=torch.float32)
     max_agent_ids = len(track_token_ids)
     for idx, agent in enumerate(agents):
         if agent.track_token not in track_token_ids:
@@ -173,11 +174,12 @@ def extract_agent_feature(type_list,tracked_objects,track_token_ids,timestamp):
         output[idx,0] = agent.center.x
         output[idx,1] = agent.center.y
         output[idx,2] = agent.center.heading 
-        output[idx,3] = float(timestamp)  # Store agent index instead of timestamp
-        output[idx,4] = agent.tracked_object_type == TrackedObjectType.PEDESTRIAN
-        output[idx,5] = agent.tracked_object_type == TrackedObjectType.VEHICLE
-        output[idx,6] = agent.tracked_object_type == TrackedObjectType.BICYCLE
-        output[idx,7] = float(track_token_int)
+        output[idx,3] = math.sqrt(agent.velocity.x ** 2 + agent.velocity.y ** 2)
+        output[idx,4] = float(track_token_int)
+        output[idx,5] = agent.tracked_object_type == TrackedObjectType.PEDESTRIAN
+        output[idx,6] = agent.tracked_object_type == TrackedObjectType.VEHICLE
+        output[idx,7] = agent.tracked_object_type == TrackedObjectType.BICYCLE
+        output[idx,8] = float(timestamp)  # Store agent index instead of timestamp
     
     return output,track_token_ids
 
@@ -192,19 +194,23 @@ def sampled_tracked_ego_to_tensor(past_ego_states:List[EgoState],
     '''
     #assert len(past_ego_states) == len(past_timestamps)     #both 20
     if isPast:
-      output = torch.zeros((len(past_timestamps),8),dtype=torch.float32)
+      output = torch.zeros((len(past_timestamps),9),dtype=torch.float32)
       initial_time = past_timestamps[0].time_s
     else:
-        output = torch.zeros((config.NUM_FUTURE_POSES,8),dtype=torch.float32)
+      output = torch.zeros((30,9),dtype=torch.float32)
     c,s = np.cos(rot),np.sin(rot)
     rot_mat = np.array([[c, -s],
-                        [s, c]])    
+                        [s, c]])    #2x2旋转矩阵
     for i, ego_state in enumerate(past_ego_states):
         dx ,dy = ego_state.rear_axle.x - ego_x, ego_state.rear_axle.y - ego_y
         output[i,0], output[i,1] = rot_mat @ np.array([dx,dy])
         output[i,2] = wrap_angle(ego_state.rear_axle.heading + rot)
+        output[i,3] = ego_state.dynamic_car_state.rear_axle_velocity_2d.x
+        output[i,4] = ego_state.dynamic_car_state.rear_axle_acceleration_2d.x
+        output[i,5] = wrap_angle(ego_state.tire_steering_angle+rot)
+        output[i,6] = ego_state.dynamic_car_state.angular_velocity
         if isPast:
-          output[i,3] = int(past_timestamps[i].time_s - initial_time)
+          output[i,7] = int(past_timestamps[i].time_s - initial_time)
     return output
 
 
@@ -238,20 +244,20 @@ def sampled_tracked_objects_to_agents(sampled_past_observations : List[TrackedOb
     if num_agents > max_agents:
         num_agents = max_agents
     
-    output_agents = torch.ones((num_agents,T,8),dtype=torch.float32)
+    output_agents = torch.ones((num_agents,T,9),dtype=torch.float32)
     
     for t,features in enumerate(agents_per_timestamp):
         for row in features:
-            agent_idx = int(row[7].item())
+            agent_idx = int(row[4].item())
             # Ensure agent_idx is within bounds
             if agent_idx < num_agents:
                 dx,dy = row[0] - ego_x, row[1] - ego_y
-                row[0], row[1] = rot_mat @ np.array([dx,dy])   
+                row[0], row[1] = rot_mat @ np.array([dx,dy])    
                 row[2] = wrap_angle(row[2] + rot)
                 output_agents[agent_idx,t,:] = row
     #print(output_agents.shape)
-    last_timestamps = output_agents[:, -1, 3] 
-    firt_timestamps = output_agents[:,0,3]
+    last_timestamps = output_agents[:, -1, 8] 
+    firt_timestamps = output_agents[:,0,8]
 
 # only record agents with full timestamps(from 0 to 2.0s)
     mask = (last_timestamps >= 1.8) & (firt_timestamps < 0.5)
@@ -441,16 +447,23 @@ class Decoder(nn.Module):
         self.config = config
         
         # lateral query: random learnable parameters 
-        lateral_qs = torch.randn(config.k_components, config.HIDDEN_SIZE // 2)
+        lateral_qs = torch.randn(config.k_components, config.HIDDEN_SIZE)
         self.lateral_queries = nn.Parameter(lateral_qs)
         
-        # Longitudinal query: encode history trajectory features
         self.hist_encoder = FourierEmbedding(3, config.HIDDEN_SIZE // 2, 64)
         self.projection = nn.Linear(config.dim_D_h, config.HIDDEN_SIZE // 2)
-        self.longitudinal_proj = nn.Linear(config.DIM_T * (config.HIDDEN_SIZE // 2), config.HIDDEN_SIZE // 2)
+        self.longitudinal_proj = nn.Linear(config.DIM_T * (config.HIDDEN_SIZE // 2), config.HIDDEN_SIZE)
         
-        # Fusion projection
-        self.query_fusion = nn.Linear(config.HIDDEN_SIZE, config.HIDDEN_SIZE)
+        self.query_fusion = nn.Linear(config.HIDDEN_SIZE*2, config.HIDDEN_SIZE)
+        
+        # m2m attention layer
+        # self.cross_modal_attention = nn.MultiheadAttention(
+        #     embed_dim=config.HIDDEN_SIZE,
+        #     num_heads=config.NUM_HEADS,
+        #     dropout=config.DROPOUT,
+        #     batch_first=True
+        # )
+        #self.modal_norm = nn.LayerNorm(config.HIDDEN_SIZE)
         
         layer = nn.TransformerDecoderLayer(
             d_model=config.HIDDEN_SIZE,
@@ -461,6 +474,7 @@ class Decoder(nn.Module):
             norm_first=True  # Pre-LayerNorm for better stability
         )
         self.model = nn.TransformerDecoder(layer,num_layers=config.num_decoder_blocks)
+        self.initial_qs = nn.Parameter(torch.randn(config.k_components, self.config.HIDDEN_SIZE,device='cuda'))
         
         self.classifier = nn.Linear(config.HIDDEN_SIZE, 1)
         self.regressor = nn.Linear(config.HIDDEN_SIZE,config.pred_horizon*5)
@@ -469,26 +483,31 @@ class Decoder(nn.Module):
     
     def forward(self,memory: Tensor, mask: Tensor = None, histories: Tensor = None) -> Tuple[Tensor]:
         batch_size = memory.shape[0]
+        
+        # lateral queries: learnable params
         lateral_queries = repeat(self.lateral_queries, 'k d -> b k d', b=batch_size)  # [B, k, D//2]
-        if histories is not None:
+        
+        #longitudinal queries: use history trajectory features(if applicable)
+        if self.config.USE_HISTORY:
             coords = histories[:,:,:3]    # x,y,heading [B,T,3]
             pos_enc = self.hist_encoder(coords)   # [B,T,hidden_dim//2]
             hist_emb = self.projection(histories) + pos_enc  # [B,T,hidden_dim//2]
             
             hist_flat = rearrange(hist_emb, 'b t d -> b (t d)')  # [B, T*(D//2)]
-            longitudinal_query = self.longitudinal_proj(hist_flat)  # [B, D//2], time fusion
-            #Repeat k times to get k modes
+            longitudinal_query = self.longitudinal_proj(hist_flat)  # [B, D//2]
             longitudinal_queries = repeat(longitudinal_query, 'b d -> b k d', k=self.config.k_components)  # [B,k,D//2]
         else:
-            longitudinal_queries = torch.zeros(batch_size, self.config.k_components, self.config.HIDDEN_SIZE // 2, 
-                                             device=memory.device, dtype=memory.dtype)
+        # Use anchor-free method to generate queries
+            longitudinal_queries = repeat(self.initial_qs, 'k d -> b k d', b=memory.shape[0])
         
         combined_queries = torch.cat([lateral_queries, longitudinal_queries], dim=-1)  # [B, k, D]
+
         target = self.query_fusion(combined_queries)  # [B, k, D]
+
         if mask is not None and mask.dtype != torch.bool:
             mask = mask.bool()
         embeddings = self.model(target, memory, memory_key_padding_mask=mask)  # [B, k, D]
-
+        
         cls_head = self.classifier(embeddings).squeeze(-1)   # [B, k]
         reg_head = self.regressor(embeddings)  # [B, k, T*5]
         reg_head = rearrange(reg_head,'b k (t c) -> b k t c', c=5)   # [B, k, T, 5]
@@ -505,6 +524,7 @@ class EarlyFusion(nn.Module):
         self.projection2 = Projection(config.dim_D_i,config.HIDDEN_SIZE)
         self.roadgraph = RoadGraph(config=config) 
         self.encoder = Encoder(config)   
+        self.state_encoder = StateAttnEncoder(state_channel=8, dropout= 0.5)
         self.pos_emb = FourierEmbedding(
             input_dim=3,  # x, y, heading
             hidden_dim=config.HIDDEN_SIZE,
@@ -557,7 +577,6 @@ class EarlyFusion(nn.Module):
             length_list.append(lengths)
             embedding_list.append(embeddings)
         embeddings,max_len,lengths = merge_tensors(embedding_list,device)
-
         # Positional encoding before projection
         coords = embeddings[:, :, :, :3]  # [A, S, T, 3], xy heading
         A, S, T, _ = coords.shape
@@ -578,15 +597,19 @@ class EarlyFusion(nn.Module):
     
     def forward_history_embedding(self,agents: List[List[np.ndarray]],device) ->Tuple[Tensor]:
         batch_size = len(agents)
-        histories = [agent[0][:,:4] for agent in agents]   
+        histories = [agent[0][:,:8] for agent in agents]    
         histories = torch.tensor(rearrange(histories, "A T D -> A T D"),device=device)
-        
-        coords = histories[:, :, :3]  
-        pos_encoding = self.pos_emb(coords)  
-        
-        embeddings = self.projection1(histories)    
-        embeddings = embeddings + pos_encoding  
-        embeddings = repeat(embeddings, 'A T D -> A T 1 D')
+        if config.USE_HISTORY:  
+
+          coords = histories[:, :, :3]         #[A, T, 3]
+          pos_encoding = self.pos_emb(coords)  # [A, T, HIDDEN_SIZE]
+          embeddings = self.projection1(histories)    
+          embeddings = embeddings + pos_encoding     # PE
+          embeddings = repeat(embeddings, 'A T D -> A T 1 D')
+        else:
+            embeddings = self.state_encoder(histories)
+            embeddings = repeat(embeddings, 'A 1 D -> A T 1 D',T = self.config.DIM_T)
+
         padding_mask = torch.zeros(batch_size,self.config.DIM_T,1,dtype=torch.bool,device=device)
         if padding_mask.dtype != torch.bool:
             padding_mask = padding_mask.bool()
@@ -598,27 +621,21 @@ class EarlyFusion(nn.Module):
         Early fusion: concatenate all features to be a [A,T,S_total,D] token,
         where S_total = S_i + S_r + 1 ,memory is [B,N,D], N=T*S
         '''
-        try:
-            road, road_mask = self.forward_road_embedding(matrix,device)
-            interact, interact_mask = self.forward_interact_embedding(agents,device)
-            hist,hist_mask = self.forward_history_embedding(agents,device)
+        road, road_mask = self.forward_road_embedding(matrix,device)
+        interact, interact_mask = self.forward_interact_embedding(agents,device)
+        hist,hist_mask = self.forward_history_embedding(agents,device)
             
-            embedding = torch.cat([road,interact,hist],dim=2)  
-            padding_mask = torch.cat([road_mask,interact_mask,hist_mask],dim=2)
+        embedding = torch.cat([road,interact,hist],dim=2)   # [A,T,S_total,D]，S_total = S_r + S_i + 1
+        padding_mask = torch.cat([road_mask,interact_mask,hist_mask],dim=2)
             
-            assert embedding.shape[:3] == padding_mask.shape   #[A T S]
-            memory_mask = rearrange(padding_mask, 'A T S -> A (T S)')   
+        assert embedding.shape[:3] == padding_mask.shape   #[A T S]
+        memory_mask = rearrange(padding_mask, 'A T S -> A (T S)')   
+
             
-            memory = self.encoder(embedding,padding_mask)   
+        memory = self.encoder(embedding,padding_mask)   
                 
-            return memory,memory_mask
+        return memory,memory_mask
             
-        except Exception as e:
-            print(f"Error in EarlyFusion forward: {e}")
-            batch_size = len(agents)
-            memory = torch.zeros(batch_size, 1, self.config.HIDDEN_SIZE, device=device)
-            memory_mask = torch.zeros(batch_size, 1, dtype=torch.bool, device=device)
-            return memory, memory_mask
 
 
 
