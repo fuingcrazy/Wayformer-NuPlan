@@ -6,9 +6,11 @@
 2. Improved model performance. Added positional encoding before earlyfusion, relace random queries with ego vehicle history trajectory feature + multimodal longitudinal proposals. This to some degree helps the model to predict multi-modality. The model finally achieves fADE6:0.82,mADE:0.33,MR:0.09 on nuplan mini split.
 3. Added other loss functions(L1-smooth, log-prob gaussian) and fine-tune their weights at different training stage to regulate output trajectories and probabilities, smoothness and drivable routes are more encouraged.
 ### Updates:
-2025.8.9 Modified `Wayformer.py` and `utils.py` to replace full ego car history with dropout features(imitation learning's limits), correct the "best index" expression, use the traj with the highest score provided by Wayformer instead of that is the closest to GT. Adjust pred horizon to 3s
-2025.8.16 Added [StateAttnEncoder](Wayformer/state_attention_encoder.py), this was inspired by [PLUTO](https://github.com/jchengai/pluto), only dropout acceleration/steering data to avoid info loss. Use learnable embeddings as road type embedding.
-2025 8.24 Removed Mode2mode attention in `utils.py`, because this will make training process unstable.
+2025.8.9  Modified `Wayformer.py` and `utils.py` to replace full ego car history with dropout features(imitation learning's limits), correct the "best index" expression, use the traj with the highest score provided by Wayformer instead of that is the closest to GT. Adjust pred horizon to 3s
+
+2025.8.16  Added [StateAttnEncoder](Wayformer/state_attention_encoder.py), this was inspired by [PLUTO](https://github.com/jchengai/pluto), only dropout acceleration/steering data to avoid info loss. Use learnable embeddings as road type embedding.
+
+2025 8.24  Removed Mode2mode attention in `utils.py`, because this will make training process unstable.
 ## Environment Set Up
 Setup the nuPlan dataset following the [offiical-doc](https://nuplan-devkit.readthedocs.io/en/latest/dataset_setup.html). Prepare conda environment:
 ```shell
